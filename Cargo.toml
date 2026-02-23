@@ -35,6 +35,7 @@ strum = { version = "0.27.1", features = ["derive"] }
 sysinfo = "0.35.2"
 regex = "1.11.1"
 libc = "0.2.178"
+thiserror = "2"
 
 [dev-dependencies]
 tempfile = "3.20.0"

@@ -1,11 +1,17 @@
 use super::structs::Command;
+use crate::errors::TheShitError;
 use crossterm::style::Stylize;
 use pyo3::types::{PyAnyMethods, PyList, PyListMethods};
 use pyo3::{PyResult, Python};
+#[cfg(unix)]
 use std::fs;
+#[cfg(unix)]
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
+/// Security check: ensures a Python rule file is owned by the current user
+/// and not writable by others. Only available on Unix systems.
+#[cfg(unix)]
 fn check_security(path: &Path) -> Result<(), String> {
     let metadata = fs::metadata(path).map_err(|e| e.to_string())?;
     let file_uid = metadata.uid();
@@ -32,12 +38,19 @@ fn check_security(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// On non-Unix platforms the security check is a no-op.
+#[cfg(not(unix))]
+#[allow(unused_variables)]
+fn check_security(_path: &Path) -> Result<(), String> {
+    Ok(())
+}
+
 pub fn process_python_rules(
     command: &Command,
     rule_paths: Vec<PathBuf>,
-) -> Result<Vec<String>, String> {
+) -> Result<Vec<String>, TheShitError> {
     let module_path = get_common_parent(&rule_paths)
-        .ok_or("No common parent found for rule paths".to_string())?;
+        .ok_or_else(|| TheShitError::PythonRulesFailed("No common parent found for rule paths".to_string()))?;
     let mut fixed_commands: Vec<String> = vec![];
     pyo3::prepare_freethreaded_python();
     Python::with_gil(|py| -> PyResult<()> {
@@ -101,7 +114,7 @@ pub fn process_python_rules(
         }
         Ok(())
     })
-    .map_err(|err| format!("Failed to process Python rules: {err}"))?;
+    .map_err(|err| TheShitError::PythonRulesFailed(format!("Failed to process Python rules: {err}")))?;
     Ok(fixed_commands)
 }
 
