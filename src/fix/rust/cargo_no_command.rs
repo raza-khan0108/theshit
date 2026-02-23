@@ -1,6 +1,7 @@
 use crate::fix::structs::Command;
 use crate::misc;
 use regex::Regex;
+use std::sync::LazyLock;
 
 pub fn is_match(command: &Command) -> bool {
     command.output().stderr().contains("no such command")
@@ -11,14 +12,21 @@ pub fn is_match(command: &Command) -> bool {
         && command.parts()[0] == "cargo"
 }
 
+/// Pre-compiled regex for extracting the suggested subcommand from `cargo` error output.
+/// Compiled once at first use; the pattern is a hardcoded literal so it cannot fail.
+static SIMILAR_COMMAND_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"a command with a similar name exists: `([^`]*)`")
+        .expect("cargo_no_command: hardcoded regex must compile")
+});
+
 pub fn fix(command: &Command) -> String {
     let broken = &command.parts()[1];
-    let fix = Regex::new(r"a command with a similar name exists: `([^`]*)`")
-        .unwrap()
+    let fix = SIMILAR_COMMAND_RE
         .captures(command.output().stderr())
         .and_then(|caps| caps.get(1))
         .map(|m| m.as_str())
-        .unwrap();
+        // is_match() guarantees we'll find a capture; fall back to `broken` to avoid a panic
+        .unwrap_or(broken);
     misc::replace_argument(command.command(), broken, fix)
 }
 

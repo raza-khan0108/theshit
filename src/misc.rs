@@ -5,7 +5,7 @@ use regex::Regex;
 use std::cmp::{max, min};
 use std::collections::HashMap;
 use std::fs;
-use std::io::{ErrorKind, Result};
+use std::io::{self, ErrorKind, Result};
 use std::path::{Path, PathBuf};
 
 static ASSETS_DIR: Dir = include_dir!("$CARGO_MANIFEST_DIR/assets");
@@ -36,7 +36,12 @@ fn copy_dir_recursive(src: &Dir, dst: &Path) -> Result<()> {
         fs::create_dir_all(dst)?;
     }
     for entry in src.entries() {
-        let dst_path = dst.join(entry.path().strip_prefix(src.path()).unwrap());
+        let dst_path = dst.join(
+            entry
+                .path()
+                .strip_prefix(src.path())
+                .unwrap_or(entry.path()),
+        );
         match entry {
             DirEntry::Dir(dir) => copy_dir_recursive(dir, &dst_path)?,
             DirEntry::File(file) => {
@@ -57,14 +62,18 @@ pub fn create_default_fix_rules(rules_dir: PathBuf) -> Result<()> {
     copy_dir_recursive(
         ASSETS_DIR
             .get_dir("rules")
-            .expect("Active rules didn't find"),
+            .ok_or_else(|| io::Error::new(ErrorKind::NotFound, "Bundled 'rules' asset directory not found"))?,
         &rules_dir,
     )?;
     Ok(())
 }
 
 pub fn expand_aliases(command: &str, aliases: HashMap<String, String>) -> String {
-    let binary = command.split(' ').next().expect("Could not find binary");
+    // If the command is empty there is nothing to expand.
+    let binary = match command.split(' ').next() {
+        Some(b) => b,
+        None => return command.to_string(),
+    };
 
     if aliases.contains_key(binary) {
         command.replacen(binary, &aliases[binary], 1)
@@ -120,7 +129,11 @@ pub fn split_command(command: &str) -> Vec<String> {
 
 pub fn replace_argument(script: &str, from: &str, to: &str) -> String {
     let end_pattern = format!(r" {}$", regex::escape(from));
-    let end_regex = Regex::new(&end_pattern).unwrap();
+    // The pattern is built from regex::escape output — it is always valid.
+    let end_regex = match Regex::new(&end_pattern) {
+        Ok(r) => r,
+        Err(_) => return script.to_string(),
+    };
 
     if end_regex.is_match(script) {
         return end_regex.replace(script, format!(" {to}")).to_string();

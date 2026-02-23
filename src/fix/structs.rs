@@ -6,14 +6,18 @@ pub struct RawModeGuard;
 
 impl RawModeGuard {
     pub fn new() -> Self {
-        terminal::enable_raw_mode().expect("Failed to enable raw mode");
+        terminal::enable_raw_mode().unwrap_or_else(|e| {
+            eprintln!("Warning: Failed to enable raw mode: {e}");
+        });
         RawModeGuard
     }
 }
 
 impl Drop for RawModeGuard {
     fn drop(&mut self) {
-        terminal::disable_raw_mode().expect("Failed to disable raw mode");
+        terminal::disable_raw_mode().unwrap_or_else(|e| {
+            eprintln!("Warning: Failed to disable raw mode: {e}");
+        });
     }
 }
 

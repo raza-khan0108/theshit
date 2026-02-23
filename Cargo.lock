@@ -723,6 +723,7 @@ dependencies = [
  "strum",
  "sysinfo",
  "tempfile",
+ "thiserror",
 ]
 
 [[package]]

@@ -2,6 +2,7 @@ mod python;
 mod rust;
 mod structs;
 
+use crate::errors::TheShitError;
 use crate::fix::rust::NativeRule;
 use crate::fix::structs::CommandOutput;
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers, read};
@@ -15,7 +16,7 @@ use std::time::Duration;
 use std::{fs, io, thread};
 use structs::RawModeGuard;
 
-pub fn fix_command(command: String, expand_command: String) -> io::Result<String> {
+pub fn fix_command(command: String, expand_command: String) -> Result<String, TheShitError> {
     let command_output = match get_command_output(expand_command) {
         Ok(output) => output,
         Err(e) => match e.kind() {
@@ -29,25 +30,31 @@ pub fn fix_command(command: String, expand_command: String) -> io::Result<String
             ),
             _ => {
                 eprintln!("{}: {}", "Error executing command".red(), e);
-                return Err(e);
+                return Err(TheShitError::Io(e));
             }
         },
     };
     let command_struct = structs::Command::new(command, command_output);
     let active_rules_dir = dirs::config_dir()
-        .ok_or(ErrorKind::NotFound)?
+        .ok_or(TheShitError::ConfigDirNotFound)?
         .join("theshit/fix_rules/active");
     let mut fixed_commands: Vec<String> = vec![];
     let mut python_rules: Vec<PathBuf> = vec![];
     for rule in fs::read_dir(active_rules_dir)? {
         let rule = rule?;
         let path = rule.path();
-        if path
-            .file_name()
-            .unwrap_or_else(|| panic!("Can't get get file name for {}", path.display()))
-            .to_string_lossy()
-            == "__pycache__"
-        {
+        let file_name = match path.file_name() {
+            Some(name) => name.to_string_lossy().into_owned(),
+            None => {
+                eprintln!(
+                    "{} {}",
+                    "Warning: Could not get file name for:".yellow(),
+                    path.display()
+                );
+                continue;
+            }
+        };
+        if file_name == "__pycache__" {
             continue;
         }
         match path.extension() {
@@ -193,7 +200,7 @@ fn choose_fixed_command(mut fixed_commands: Vec<String>) -> String {
         std::process::exit(1);
     }
 
-    let mut current_command = fixed_commands.first().unwrap();
+    let mut current_command = &fixed_commands[0];
     let mut current_index = 0;
 
     eprintln!();
@@ -210,7 +217,7 @@ fn choose_fixed_command(mut fixed_commands: Vec<String>) -> String {
         )
         .as_bytes(),
     )
-    .expect("Failed to write to stderr");
+    .unwrap_or_else(|e| eprintln!("Warning: Failed to write to stderr: {e}"));
     loop {
         match read() {
             Ok(event) => {
@@ -226,7 +233,7 @@ fn choose_fixed_command(mut fixed_commands: Vec<String>) -> String {
                                 } else {
                                     current_index = fixed_commands.len() - 1;
                                 }
-                                current_command = fixed_commands.get(current_index).unwrap();
+                                current_command = &fixed_commands[current_index];
                                 err.write_all(
                                     format!(
                                         "{} [{}/{}/{}/{}]",
@@ -238,7 +245,7 @@ fn choose_fixed_command(mut fixed_commands: Vec<String>) -> String {
                                     )
                                     .as_bytes(),
                                 )
-                                .expect("Failed to write to stderr");
+                                .unwrap_or_else(|e| eprintln!("Warning: Failed to write to stderr: {e}"));
                             }
                         }
                         (KeyCode::Down, _) => {
@@ -248,7 +255,7 @@ fn choose_fixed_command(mut fixed_commands: Vec<String>) -> String {
                                 } else {
                                     current_index = 0;
                                 }
-                                current_command = fixed_commands.get(current_index).unwrap();
+                                current_command = &fixed_commands[current_index];
                                 err.write_all(
                                     format!(
                                         "{} [{}/{}/{}/{}]",
@@ -260,7 +267,7 @@ fn choose_fixed_command(mut fixed_commands: Vec<String>) -> String {
                                     )
                                     .as_bytes(),
                                 )
-                                .expect("Failed to write to stderr");
+                                .unwrap_or_else(|e| eprintln!("Warning: Failed to write to stderr: {e}"));
                             }
                         }
                         (KeyCode::Enter, _) => {
